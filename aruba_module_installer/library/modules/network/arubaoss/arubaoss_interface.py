@@ -107,6 +107,66 @@ from ansible.module_utils.network.arubaoss.arubaoss import run_commands,get_conf
 from ansible.module_utils.network.arubaoss.arubaoss import arubaoss_argument_spec, arubaoss_required_if
 from ansible.module_utils._text import to_text
 
+class PortListError(Exception):
+    # Raised when something is wrong with the user's port list
+    pass
+
+def get_available_ports(module):
+    # Returns available ports on the device
+    url = '/ports'
+    response = run_commands(module, url, {}, 'GET')
+    available_ports = set(map(lambda item: item['id'], response['port_element']))
+    return available_ports
+
+def get_selected_ports(port_list, available_ports):
+    # Returns a list of all ports the user selected
+    if port_list == 'all':
+        return available_ports
+    ranges = port_list.replace(' ', '').split(',')
+    ranges = list(map(lambda item: item.split('-'), ranges))
+    selected_ports = set()
+    for item in ranges:
+        if item[0] in available_ports:
+            selected_ports.append(item[0])
+            if len(item) > 2:
+                # Return an error, user put in something like "1/1 - 1/4 - 1/9"
+                raise PortListError('{} is not a valid range. Ranges must specify one least port and one greatest port. Example: 1/1 - 1/2 - 1/3 (incorrect); 1/1 - 1/3 (correct)'.format('-'.join(item)))
+            elif len(item) == 2:
+                if precedes(item[1], item[0]):
+                    # user put an upper bound before a lower bound
+                    raise PortListError('{} - {} is not a valid range, did you mean {} - {}?'.format(item[0], item[1], item[1], item[0]))
+                for available_port in available_ports:
+                    if (precedes(available_port, item[1]) and precedes(item[0], available_port)) or available_port == item[1]:
+                        selected_ports.add(available_port)
+    return selected_ports
+
+def precedes(left, right):
+    # takes two ports like 1/123 and 2/A4, and returns true if the left comes before the right.
+    # first compares the chassis, then compares the ports.
+    left_list = left.split('/')
+    right_list = right.split('/')
+    if len(left_list) != len(right_list):
+        # Return an error, user gave a range like "1/1 - 3"
+        raise PortListError('{} - {} is not a valid range. Example: 1/1 - 3 (incorrect); 1/1 - 2/3 (correct)'.format(left, right))
+    for left_element, right_element in zip(left_list, right_list):
+        if left_element != right_element:
+            return number_precedes(left_element, right_element)
+    return False # The ports are equivalent
+
+def number_precedes(left, right):
+    # takes two numbers like 123 and A4, and returns true if the left comes before the right.
+    # in this function, normal ports always precede modules.
+    if left[0].isalpha() != right[0].isalpha():
+        return ((not left[0].isalpha()) and right[0].isalpha())
+    elif left[0].isalpha() and right[0].isalpha():
+        if left[0].upper() < right[0].upper():
+            return True
+        elif left[0].upper() > right[0].upper():
+            return False
+        else:
+            return int(left[1:]) < int(right[1:])
+    else:
+        return int(left) < int(right)
 
 def config_port(module):
 
@@ -246,6 +306,11 @@ def run_module():
 
     if module.check_mode:
         module.exit_json(**result)
+
+    available_ports = get_available_ports(module)
+    selected_ports = get_selected_ports(module, available_ports)
+
+    ports = str(module.params['interface']).replace(' ', '').split('-')
 
     port_url = '/ports/' + str(module.params['interface'])
     check_port = get_config(module,port_url)
