@@ -127,7 +127,7 @@ def get_selected_ports(port_list, available_ports):
     selected_ports = set()
     for item in ranges:
         if item[0] in available_ports:
-            selected_ports.append(item[0])
+            selected_ports.add(item[0])
             if len(item) > 2:
                 # Return an error, user put in something like "1/1 - 1/4 - 1/9"
                 raise PortListError('{} is not a valid range. Ranges must specify one least port and one greatest port. Example: 1/1 - 1/2 - 1/3 (incorrect); 1/1 - 1/3 (correct)'.format('-'.join(item)))
