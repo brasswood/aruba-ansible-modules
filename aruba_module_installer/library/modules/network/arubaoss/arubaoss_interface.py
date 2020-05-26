@@ -106,6 +106,7 @@ from ansible.module_utils.basic import AnsibleModule
 from ansible.module_utils.network.arubaoss.arubaoss import run_commands,get_config
 from ansible.module_utils.network.arubaoss.arubaoss import arubaoss_argument_spec, arubaoss_required_if
 from ansible.module_utils._text import to_text
+import re
 
 class PortListError(Exception):
     # Raised when something is wrong with the user's port list
@@ -140,11 +141,19 @@ def get_selected_ports(port_list, available_ports):
                         selected_ports.add(available_port)
     return selected_ports
 
+def validate_number(number):
+    if re.fullmatch(r'[a-zA-Z]?\d*', number) is None:
+        raise PortListError("{} isn't a valid number. Expected 0 or 1 letters followed by an integer. Example: 1, 43, A2, B3".format(number))
+
 def precedes(left, right):
     # takes two ports like 1/123 and 2/A4, and returns true if the left comes before the right.
     # first compares the chassis, then compares the ports.
     left_list = left.split('/')
     right_list = right.split('/')
+    for number in left_list:
+        validate_number(number)
+    for number in right_list:
+        validate_number(number)
     if len(left_list) != len(right_list):
         # Return an error, user gave a range like "1/1 - 3"
         raise PortListError('{} - {} is not a valid range. Example: 1/1 - 3 (incorrect); 1/1 - 2/3 (correct)'.format(left, right))
