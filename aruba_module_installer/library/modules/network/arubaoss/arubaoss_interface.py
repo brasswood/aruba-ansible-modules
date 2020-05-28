@@ -108,52 +108,60 @@ from ansible.module_utils.network.arubaoss.arubaoss import arubaoss_argument_spe
 from ansible.module_utils._text import to_text
 import re
 
+QPTQOS = '~QPT_QOS'
+
 class PortListError(Exception):
     # Raised when something is wrong with the user's port list
-    pass
+    def __init__(self, message):
+        self.message = message
 
 def get_available_ports(module):
     # Returns available ports on the device
     url = '/ports'
-    response = run_commands(module, url, {}, 'GET')
+    response = get_config(module ,url)
+    response = module.from_json(to_text(response))
     available_ports = set(map(lambda item: item['id'], response['port_element']))
     return available_ports
 
 def get_selected_ports(port_list, available_ports):
-    # Returns a list of all ports the user selected
+    # Returns a list of all ports the user selected that are on the switch
     if port_list == 'all':
         return available_ports
-    ranges = port_list.replace(' ', '').split(',')
-    ranges = list(map(lambda item: item.split('-'), ranges))
+
+    ranges = parse_port_list(port_list)
     selected_ports = set()
     for item in ranges:
         if item[0] in available_ports:
             selected_ports.add(item[0])
-            if len(item) > 2:
-                # Return an error, user put in something like "1/1 - 1/4 - 1/9"
-                raise PortListError('{} is not a valid range. Ranges must specify one least port and one greatest port. Example: 1/1 - 1/2 - 1/3 (incorrect); 1/1 - 1/3 (correct)'.format('-'.join(item)))
-            elif len(item) == 2:
-                if precedes(item[1], item[0]):
-                    # user put an upper bound before a lower bound
-                    raise PortListError('{} - {} is not a valid range, did you mean {} - {}?'.format(item[0], item[1], item[1], item[0]))
-                for available_port in available_ports:
-                    if (precedes(available_port, item[1]) and precedes(item[0], available_port)) or available_port == item[1]:
-                        selected_ports.add(available_port)
+        if len(item) == 2:
+            for available_port in available_ports:
+                if (precedes(available_port, item[1]) and precedes(item[0], available_port)) or available_port == item[1]:
+                    selected_ports.add(available_port)        
     return selected_ports
 
-def validate_number(number):
-    if re.fullmatch(r'[a-zA-Z]?\d*', number) is None:
-        raise PortListError("{} isn't a valid number. Expected 0 or 1 letters followed by an integer. Example: 1, 43, A2, B3".format(number))
+def parse_port_list(port_list):
+    # Helper function to make sure the port list provided is OK
+    # Takes a string, returns a list of lists for get_selected_ports
+    ranges = port_list.replace(' ', '').split(',')
+    ranges = list(map(lambda item: item.split('-'), ranges))
+    for item in ranges:
+        for port in item:
+            if re.fullmatch(r'[a-zA-Z]?\d+(/[a-zA-Z]?\d+)*', port) is None:
+                raise PortListError("{} isn't a valid port. Expected 0 or 1 letters followed by an integer. Example: 1, 43, A2, B3".format(port))
+        if len(item) > 2:
+            # Return an error, user put in something like "1/1 - 1/4 - 1/9"
+            raise PortListError('{} is not a valid range. Ranges must specify one least port and one greatest port. Example: 1/1 - 1/2 - 1/3 (incorrect); 1/1 - 1/3 (correct)'.format('-'.join(item)))
+        if len(item) == 2:
+            if precedes(item[1], item[0]):
+                # user put an upper bound before a lower bound
+                raise PortListError('{} - {} is not a valid range, did you mean {} - {}?'.format(item[0], item[1], item[1], item[0]))
+    return ranges
 
 def precedes(left, right):
     # takes two ports like 1/123 and 2/A4, and returns true if the left comes before the right.
-    # first compares the chassis, then compares the ports.
+    # first compares the chassis, then compares the modules/ports.
     left_list = left.split('/')
     right_list = right.split('/')
-    for number in left_list:
-        validate_number(number)
-    for number in right_list:
-        validate_number(number)
     if len(left_list) != len(right_list):
         # Return an error, user gave a range like "1/1 - 3"
         raise PortListError('{} - {} is not a valid range. Example: 1/1 - 3 (incorrect); 1/1 - 2/3 (correct)'.format(left, right))
