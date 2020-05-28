@@ -250,7 +250,7 @@ def qos(module, port):
         if port_config:
             check_config = module.from_json(to_text(port_config))
             for ports in check_config['qos_port_policy_element']:
-                if ports['port_id'] == params['interface'] and \
+                if ports['port_id'] == port and \
                    ports['policy_id'] == policy_id and \
                    ports['direction'] == params['qos_direction']:
                        ret = {'changed':False}
@@ -259,15 +259,15 @@ def qos(module, port):
 
 
         data = {
-                'port_id': params['interface'],
+                'port_id': port,
                 'policy_id': policy_id,
                 'direction': params['qos_direction']
                 }
         result = run_commands(module, url,data, 'POST' )
 
     else:
-        url_delete =  url + '/' + params['interface'] + '-' + params['qos_policy'] + QPTQOS + '-' + params['qos_direction']
-        check_url = url + '/' + params['interface'] + '-' + params['qos_policy'] + QPTQOS + '/stats'
+        url_delete =  url + '/' + port + '-' + params['qos_policy'] + QPTQOS + '-' + params['qos_direction']
+        check_url = url + '/' + port + '-' + params['qos_policy'] + QPTQOS + '/stats'
         result = run_commands(module, url_delete, {}, 'DELETE', check= check_url)
     return result
 
@@ -288,11 +288,11 @@ def acl(module, port):
     url = "/ports-access-groups"
     acl_type = params['acl_type']
     direction = params['acl_direction']
-    data = {'port_id': params['interface'],
+    data = {'port_id': port,
             'acl_id': params['acl_id'] + "~" + acl_type,
             'direction': direction}
 
-    delete_url = url + '/' + params['interface'] + '-' + params['acl_id'] + "~" + acl_type\
+    delete_url = url + '/' + port + '-' + params['acl_id'] + "~" + acl_type\
             + '-' +  direction
 
     config_present = False
