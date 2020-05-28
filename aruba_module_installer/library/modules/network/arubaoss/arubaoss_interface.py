@@ -61,6 +61,7 @@ options:
     acl_direction:
         description:
             - Direction in which ACL will be applied.
+            - Required with acl_id
         required: false
 
 
@@ -185,12 +186,12 @@ def number_precedes(left, right):
     else:
         return int(left) < int(right)
 
-def config_port(module):
+def config_port(module, port):
 
     params = module.params
-    url = '/ports/'+  module.params['interface']
+    url = '/ports/'+  port
 
-    data = {'id': params['interface']}
+    data = {'id': port}
 
     if params.get('description') != None:
         data['name'] =  params['description']
@@ -202,23 +203,23 @@ def config_port(module):
 
     return result
 
+def check_qos_policy(module):
+    params = module.params
+    # check qos policy is present
+    qos_check = '/qos/policies/' + params['qos_policy'] + QPTQOS
+    if not get_config(module, qos_check):
+        return False
+    return True
 
-def qos(module):
+
+def qos(module, port):
 
     params = module.params
 
     url = '/qos/ports-policies'
-    qptqos = '~QPT_QOS'
-
-    # check qos policy is present
-    qos_check = '/qos/policies/' + params['qos_policy'] + qptqos
-    if not get_config(module, qos_check):
-        return {'msg': 'Configure QoS policy first. {} does not exist'.\
-                format(params['qos_policy']),'changed':False}
-
 
     if params['state'] == 'create':
-        policy_id = params['qos_policy'] + qptqos
+        policy_id = params['qos_policy'] + QPTQOS
         port_config = get_config(module, url)
         if port_config:
             check_config = module.from_json(to_text(port_config))
@@ -239,31 +240,31 @@ def qos(module):
         result = run_commands(module, url,data, 'POST' )
 
     else:
-        url_delete =  url + '/' + params['interface'] + '-' + params['qos_policy'] + qptqos + '-' + params['qos_direction']
-        check_url = url + '/' + params['interface'] + '-' + params['qos_policy'] + qptqos + '/stats'
+        url_delete =  url + '/' + params['interface'] + '-' + params['qos_policy'] + QPTQOS + '-' + params['qos_direction']
+        check_url = url + '/' + params['interface'] + '-' + params['qos_policy'] + QPTQOS + '/stats'
         result = run_commands(module, url_delete, {}, 'DELETE', check= check_url)
     return result
 
+def check_acl(module):
+    # Check if acl is present
+    params = module.params
 
-def acl(module):
+    check_acl = '/acls/' + params['acl_id'] + "~" + params['acl_type']
+    if not get_config(module,check_acl):
+        return False
+    return True
+
+
+def acl(module, port):
 
     params = module.params
 
-    if params.get('acl_direction') is None:
-        return {'msg': 'Missing parameter: acl_direction','changed':False}
-
-    # Check if acl is present
     url = "/ports-access-groups"
     acl_type = params['acl_type']
     direction = params['acl_direction']
     data = {'port_id': params['interface'],
             'acl_id': params['acl_id'] + "~" + acl_type,
             'direction': direction}
-
-    check_acl = '/acls/' + params['acl_id'] + "~" + acl_type
-    if not get_config(module,check_acl):
-        return {'msg': 'Configure ACL first. {} does not exist'.\
-                                format(params['acl_id']),'changed':False}
 
     delete_url = url + '/' + params['interface'] + '-' + params['acl_id'] + "~" + acl_type\
             + '-' +  direction
@@ -293,7 +294,6 @@ def acl(module):
 
     return result
 
-
 def run_module():
     module_args = dict(
         interface=dict(type='str', required=True),
@@ -313,39 +313,58 @@ def run_module():
 
     module_args.update(arubaoss_argument_spec)
 
-    result = dict(changed=False,warnings='Not Supported')
-
+    required_together = [('acl_id', 'acl_direction')]
     module = AnsibleModule(
         required_if=arubaoss_required_if,
+        required_together=required_together,
         argument_spec=module_args,
         supports_check_mode=True
     )
 
     if module.check_mode:
-        module.exit_json(**result)
+        module.exit_json(changed=False, warnings='Not Supported')
 
-    available_ports = get_available_ports(module)
-    selected_ports = get_selected_ports(module, available_ports)
+    try:
+        available_ports = get_available_ports(module)
+        selected_ports = get_selected_ports(module.params['interface'], available_ports)
+    except PortListError as err:
+        module.fail_json(changed=False, msg=err.message)
 
-    ports = str(module.params['interface']).replace(' ', '').split('-')
+    if len(selected_ports) == 0:
+        module.exit_json(skipped=True, msg='{} does not match any ports on the device.'.format(module.params['interface']))
+    try:
+        data = list()
+        changed = False
+        if module.params['qos_policy']:
+            if not check_qos_policy(module):
+                module.exit_json(skipped=True, msg='Configure QoS policy first. {} does not exist'.\
+                format(module.params['qos_policy']))
+            for port in selected_ports:
+                qos_result = qos(module, port)
+                if qos_result['changed']:
+                    changed = True
+                data.append(qos_result)
 
-    port_url = '/ports/' + str(module.params['interface'])
-    check_port = get_config(module,port_url)
-    if not check_port:
-        result = {'msg': 'Port {} not present on device {}'.format(module.params['interface'],port_url),
-                'changed':False}
-    else:
-        try:
+        elif module.params['acl_id']:
+            if not check_acl(module):
+                module.exit_json(skipped=True, msg='Configure ACL first. {} does not exist'.\
+                format(module.params['acl_id']))
+            for port in selected_ports:
+                acl_result = acl(module, port)
+                if acl_result['changed']:
+                    changed = True
+                data.append(qos_result)
 
-            if module.params['qos_policy']:
-                result = qos(module)
-            elif module.params['acl_id']:
-                result = acl(module)
-            else:
-                result = config_port(module)
+        else:
+            for port in selected_ports:
+                config_result = config_port(module, port)
+                if config_result['changed']:
+                    changed = True
+                data.append(config_result)
 
-        except Exception as err:
-            return module.fail_json(msg=err)
+        result = dict(changed=changed, data=data)
+    except Exception as err:
+        return module.fail_json(changed=False, msg=err)
 
     module.exit_json(**result)
 
