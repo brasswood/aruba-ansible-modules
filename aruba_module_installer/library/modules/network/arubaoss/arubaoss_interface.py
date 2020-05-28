@@ -37,32 +37,58 @@ extends_documentation_fragment:
     - arubaoss_rest
 
 options:
-    interface:
+    configuration:
         description:
-            - interface id to be configured
+            - List of interface configurations
         required: true
-    description:
-        description:
-            - interface name/description, to remove the description of an interface
-            pass in an empty string ''
-        required: false
-    admin_stat:
-        description:
-            - interface admin status
-        required: false
-    qos_policy:
-        description:
-            - Name of QOS policy profile that needs to applied to port
-        required: false
-    acl_id:
-        description:
-            - Name ACL profile that needs to applied to port
-        required: false
-    acl_direction:
-        description:
-            - Direction in which ACL will be applied.
-            - Required with acl_id
-        required: false
+        type: list
+        elements: dict
+        suboptions:
+            interface:
+                description:
+                    - Comma separated list of interfaces and interface ranges to use this configuration.
+                    - The keyword C(all) will configure all available interfaces on the switch.
+                    - Example: C(1/1-2/1,2/4) will configure all of the interfaces on the first stack member, 
+                    interface 1 on the second stacking member, and interface 4 on the second stack member.
+                    - If the lower-bound or upper-bound of a range don't exist on the switch, the module
+                    figures out which ports on the switch I(would) be within that range.
+                    - Example: C(1/1-1/999) would match all built-in interfaces on the first stack member 
+                    and none of the modules.
+                    - Example: C(1/A1-1/FF) would match all modules on the first stack member and none of 
+                    the built-in interfaces.
+                    - Example: C(1/1-2/999) would match all built-in interfaces I(and) modules on the first 
+                    stack member, and only the built-in interfaces on the second stack member.
+                    - When determining which interfaces/modules on the switch are included in a range, I(all) 
+                    interfaces I(and) modules on a lower stack member precede any interface or module on a 
+                    higher stack member. E.g., C(1/B2) precedes C(2/1).
+                    - Then, built-in interfaces (plain numbers) precede modules (letter + number) on the same 
+                    stack member. E.g., C(1/999) precedes C(1/A1)
+                    - Finally, lower interfaces precede higher interfaces, and lower modules precede higher modules. 
+                    E.g., C(1/1) precedes C(1/3), C(1/A1) precedes C(1/A2), and C(1/A2) precedes C(1/B1).
+                required: true
+                type: str
+            description:
+                description:
+                    - interface name/description, to remove the description of an interface
+                    pass in an empty string ''
+                required: false
+            admin_stat:
+                description:
+                    - interface admin status
+                required: false
+            qos_policy:
+                description:
+                    - Name of QOS policy profile that needs to applied to port
+                required: false
+            acl_id:
+                description:
+                    - Name ACL profile that needs to applied to port
+                required: false
+            acl_direction:
+                description:
+                    - Direction in which ACL will be applied.
+                    - Required with acl_id
+                required: false
 
 
 author:
