@@ -142,6 +142,91 @@ class PortListError(Exception):
     def __init__(self, message):
         self.message = message
 
+class PortRange:
+    def __init__(self, spec):
+        self._all = (spec == "all")
+        if not self._all:
+            # Parses the string to get the list of ranges provided by the user
+            ranges = spec.replace(' ', '').split(',')
+            ranges = list(map(lambda item: item.split('-'), ranges))
+            for item in ranges:
+                for port in item:
+                    if re.fullmatch(r'[a-zA-Z]?\d+(/[a-zA-Z]?\d+)*', port) is None:
+                        raise PortListError("{} isn't a valid port. Expected 0 or 1 letters followed by an integer. Example: 1, 43, A2, B3".format(port))
+                if len(item) > 2:
+                    # Return an error, user put in something like "1/1 - 1/4 - 1/9"
+                    raise PortListError('{} is not a valid range. Ranges must specify one least port and one greatest port. Example: 1/1 - 1/2 - 1/3 (incorrect); 1/1 - 1/3 (correct)'.format('-'.join(item)))
+                if len(item) == 2:
+                    if self._precedes(item[1], item[0]):
+                        # user put an upper bound before a lower bound
+                        raise PortListError('{} - {} is not a valid range, did you mean {} - {}?'.format(item[0], item[1], item[1], item[0]))
+            self._ranges = ranges
+
+    def _precedes(self, left, right):
+        # takes two ports like 1/123 and 2/A4, and returns true if the left comes before the right.
+        # first compares the chassis, then compares the modules/ports.
+        left_list = left.split('/')
+        right_list = right.split('/')
+        if len(left_list) != len(right_list):
+            # Return an error, user gave a range like "1/1 - 3"
+            raise PortListError('{} - {} is not a valid range. Example: 1/1 - 3 (incorrect); 1/1 - 2/3 (correct)'.format(left, right))
+        for left_element, right_element in zip(left_list, right_list):
+            if left_element != right_element:
+                return self._number_precedes(left_element, right_element)
+        return False # The ports are equivalent
+
+    def _number_precedes(self, left, right):
+        # takes two numbers like 123 and A4, and returns true if the left comes before the right.
+        # in this function, normal ports always precede modules.
+        if left[0].isalpha() != right[0].isalpha():
+            return ((not left[0].isalpha()) and right[0].isalpha())
+        elif left[0].isalpha() and right[0].isalpha():
+            if left[0].upper() < right[0].upper():
+                return True
+            elif left[0].upper() > right[0].upper():
+                return False
+            else:
+                return int(left[1:]) < int(right[1:])
+        else:
+            return int(left) < int(right)
+
+    def includes(self, port):
+        if self._spec == "all":
+            return True
+        else:
+            for item in self._ranges:
+                if item[0] == port:
+                    return True
+                elif len(item) == 2:
+                    if (self._precedes(port, item[1]) and self._precedes(item[0], port)) or port == item[1]:
+                        return True
+            return False
+
+class Changes:
+    def __init__(self):
+        self._changes = dict()
+
+    def update(self, port, changes):
+        if port in self._changes.keys():
+            self._changes[port].update(changes)
+        else:
+            self._changes[port] = changes
+
+    def __len__(self):
+        return len(self._changes)
+    
+    def __iter__(self):
+        return iter(self._changes)
+
+    def __getitem__(self, key):
+        return self._changes[key]
+
+    def __setitem__(self, key, value):
+        self._changes[key] = value
+
+    def __delitem__(self, key):
+        del _changes[key]
+
 def get_available_ports(module):
     # Returns available ports on the device
     url = '/ports'
@@ -150,71 +235,7 @@ def get_available_ports(module):
     available_ports = set(map(lambda item: item['id'], response['port_element']))
     return available_ports
 
-def get_selected_ports(port_list, available_ports):
-    # Returns a list of all ports the user selected that are on the switch
-    if port_list == 'all':
-        return available_ports
-
-    ranges = parse_port_list(port_list)
-    selected_ports = set()
-    for item in ranges:
-        if item[0] in available_ports:
-            selected_ports.add(item[0])
-        if len(item) == 2:
-            for available_port in available_ports:
-                if (precedes(available_port, item[1]) and precedes(item[0], available_port)) or available_port == item[1]:
-                    selected_ports.add(available_port)        
-    return selected_ports
-
-def parse_port_list(port_list):
-    # Helper function to make sure the port list provided is OK
-    # Takes a string, returns a list of lists for get_selected_ports
-    ranges = port_list.replace(' ', '').split(',')
-    ranges = list(map(lambda item: item.split('-'), ranges))
-    for item in ranges:
-        for port in item:
-            if re.fullmatch(r'[a-zA-Z]?\d+(/[a-zA-Z]?\d+)*', port) is None:
-                raise PortListError("{} isn't a valid port. Expected 0 or 1 letters followed by an integer. Example: 1, 43, A2, B3".format(port))
-        if len(item) > 2:
-            # Return an error, user put in something like "1/1 - 1/4 - 1/9"
-            raise PortListError('{} is not a valid range. Ranges must specify one least port and one greatest port. Example: 1/1 - 1/2 - 1/3 (incorrect); 1/1 - 1/3 (correct)'.format('-'.join(item)))
-        if len(item) == 2:
-            if precedes(item[1], item[0]):
-                # user put an upper bound before a lower bound
-                raise PortListError('{} - {} is not a valid range, did you mean {} - {}?'.format(item[0], item[1], item[1], item[0]))
-    return ranges
-
-def precedes(left, right):
-    # takes two ports like 1/123 and 2/A4, and returns true if the left comes before the right.
-    # first compares the chassis, then compares the modules/ports.
-    left_list = left.split('/')
-    right_list = right.split('/')
-    if len(left_list) != len(right_list):
-        # Return an error, user gave a range like "1/1 - 3"
-        raise PortListError('{} - {} is not a valid range. Example: 1/1 - 3 (incorrect); 1/1 - 2/3 (correct)'.format(left, right))
-    for left_element, right_element in zip(left_list, right_list):
-        if left_element != right_element:
-            return number_precedes(left_element, right_element)
-    return False # The ports are equivalent
-
-def number_precedes(left, right):
-    # takes two numbers like 123 and A4, and returns true if the left comes before the right.
-    # in this function, normal ports always precede modules.
-    if left[0].isalpha() != right[0].isalpha():
-        return ((not left[0].isalpha()) and right[0].isalpha())
-    elif left[0].isalpha() and right[0].isalpha():
-        if left[0].upper() < right[0].upper():
-            return True
-        elif left[0].upper() > right[0].upper():
-            return False
-        else:
-            return int(left[1:]) < int(right[1:])
-    else:
-        return int(left) < int(right)
-
-def config_port(module, port):
-
-    params = module.params
+def config_port(module, params, port):
     url = '/ports/'+  port
 
     data = {'id': port}
@@ -229,18 +250,12 @@ def config_port(module, port):
 
     return result
 
-def check_qos_policy(module):
-    params = module.params
+
+def qos(module, params, port):
     # check qos policy is present
     qos_check = '/qos/policies/' + params['qos_policy'] + QPTQOS
     if not get_config(module, qos_check):
-        return False
-    return True
-
-
-def qos(module, port):
-
-    params = module.params
+        return dict(skipped=True, msg='Configure QoS policy first. {} does not exist'.format(params['qos_policy']))
 
     url = '/qos/ports-policies'
 
@@ -271,19 +286,13 @@ def qos(module, port):
         result = run_commands(module, url_delete, {}, 'DELETE', check= check_url)
     return result
 
-def check_acl(module):
-    # Check if acl is present
-    params = module.params
 
+
+def acl(module, params, port):
+    # Check if acl is present
     check_acl = '/acls/' + params['acl_id'] + "~" + params['acl_type']
     if not get_config(module,check_acl):
-        return False
-    return True
-
-
-def acl(module, port):
-
-    params = module.params
+        return dict(skipped=True, msg='Configure ACL first. {} does not exist'.format(module.params['acl_id']))
 
     url = "/ports-access-groups"
     acl_type = params['acl_type']
@@ -320,6 +329,13 @@ def acl(module, port):
 
     return result
 
+def configurationPartOf(configuration_element):
+    configPart = dict()
+    for k, v in configuration_element:
+        if k != 'interface':
+            configPart[k] = v
+    return configPart
+
 def run_module():
     module_args = dict(
         interface=dict(type='str', required=True),
@@ -350,49 +366,46 @@ def run_module():
     if module.check_mode:
         module.exit_json(changed=False, warnings='Not Supported')
 
+    available_ports = get_available_ports(module)
+    staged_changes = Changes()
+
+    for section in module.params['configuration']:
+        try:
+            port_range = PortRange(spec=section['interface'])
+        except PortListError as err:
+            module.fail_json(changed=False, msg=err.message)
+        changes = configurationPartOf(section)
+        for port in available_ports:
+            if port_range.includes(port):
+                staged_changes.update(port=port, changes=changes)
+
+    if len(staged_changes.keys()) == 0:
+        module.exit_json(skipped=True, msg='No ports were matched on the device.')
+    
     try:
-        available_ports = get_available_ports(module)
-        selected_ports = get_selected_ports(module.params['interface'], available_ports)
-    except PortListError as err:
-        module.fail_json(changed=False, msg=err.message)
+        result = dict(changed=False, acl_result={port: dict(changed=False) for port in staged_changes.keys()},
+                    qos_result={port: dict(changed=False) for port in staged_changes.keys()},
+                    config_result={port: dict(changed=False) for port in staged_changes.keys()})
+        for port, changes in staged_changes:
+            if changes['qos_policy']:
+                qos_result = qos(module=module, params=changes, port=port)
+                result['changed'] = result['changed'] or qos_result['changed']
+                result['qos_result'][port].update(qos_result)
 
-    if len(selected_ports) == 0:
-        module.exit_json(skipped=True, msg='{} does not match any ports on the device.'.format(module.params['interface']))
-    try:
-        data = list()
-        changed = False
-        if module.params['qos_policy']:
-            if not check_qos_policy(module):
-                module.exit_json(skipped=True, msg='Configure QoS policy first. {} does not exist'.\
-                format(module.params['qos_policy']))
-            for port in selected_ports:
-                qos_result = qos(module, port)
-                if qos_result['changed']:
-                    changed = True
-                data.append(qos_result)
+            if changes['acl_id']:
+                acl_result = acl(module=module, params=changes, port=port)
+                result['changed'] = result['changed'] or acl_result['changed']
+                result['acl_result'][port].update(acl_result)
 
-        elif module.params['acl_id']:
-            if not check_acl(module):
-                module.exit_json(skipped=True, msg='Configure ACL first. {} does not exist'.\
-                format(module.params['acl_id']))
-            for port in selected_ports:
-                acl_result = acl(module, port)
-                if acl_result['changed']:
-                    changed = True
-                data.append(qos_result)
+            if changes['description'] or changes['admin_stat']:
+                config_result = config_port(module=module, params=changes, port=port)
+                result['changed'] = result['changed'] or config_result['changed']
+                result['config_result'][port].update(config_result)
 
-        else:
-            for port in selected_ports:
-                config_result = config_port(module, port)
-                if config_result['changed']:
-                    changed = True
-                data.append(config_result)
+        module.exit_json(**result)
 
-        result = dict(changed=changed, data=data)
     except Exception as err:
         return module.fail_json(changed=False, msg=err)
-
-    module.exit_json(**result)
 
 
 def main():
