@@ -232,7 +232,7 @@ def qos(module, params, port):
     # check qos policy is present
     qos_check = '/qos/policies/' + params['qos_policy'] + QPTQOS
     if not get_config(module, qos_check):
-        return dict(skipped=True, changed=False, msg='Configure QoS policy first. {} does not exist'.format(params['qos_policy']))
+        return dict(changed=False, msg='Configure QoS policy first. {} does not exist'.format(params['qos_policy']))
 
     url = '/qos/ports-policies'
 
@@ -269,7 +269,7 @@ def acl(module, params, port):
     # Check if acl is present
     check_acl = '/acls/' + params['acl_id'] + "~" + params['acl_type']
     if not get_config(module,check_acl):
-        return dict(skipped=True, changed=False, msg='Configure ACL first. {} does not exist'.format(module.params['acl_id']))
+        return dict(changed=False, msg='Configure ACL first. {} does not exist'.format(module.params['acl_id']))
 
     url = "/ports-access-groups"
     acl_type = params['acl_type']
