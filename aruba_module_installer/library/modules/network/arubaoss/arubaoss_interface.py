@@ -203,6 +203,9 @@ class PortRange:
                         return True
             return False
     
+    def select_ports(self, available_ports):
+        selected_ports = [port for port in available_ports if self.includes(port)]
+        return selected_ports
 
 def get_available_ports(module):
     # Returns available ports on the device
@@ -350,10 +353,14 @@ def run_module():
             port_range = PortRange(spec=section['interface'])
         except PortListError as err:
             module.fail_json(changed=False, msg=err.message)
-        changes = configurationPartOf(section)
-        for port in available_ports:
-            if port_range.includes(port):
+        
+        selected_ports = port_range.select_ports(available_ports)
+        if selected_ports:
+            changes = configurationPartOf(section)
+            for port in selected_ports:
                 staged_changes.update({port: changes})
+        else:
+            module.warn("{} did not match any ports on the switch, skipping this config section.".format(section['interface']))
 
     if not staged_changes:
         module.exit_json(skipped=True, msg='No ports were matched on the device.')
