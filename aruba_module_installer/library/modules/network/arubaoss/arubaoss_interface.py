@@ -191,7 +191,7 @@ class PortRange:
             return int(left) < int(right)
 
     def includes(self, port):
-        if self._spec == "all":
+        if self._all:
             return True
         else:
             for item in self._ranges:
@@ -211,6 +211,12 @@ class Changes:
             self._changes[port].update(changes)
         else:
             self._changes[port] = changes
+
+    def keys(self):
+        return self._changes.keys()
+
+    def items(self):
+        return self._changes.items()
 
     def __len__(self):
         return len(self._changes)
@@ -331,7 +337,7 @@ def acl(module, params, port):
 
 def configurationPartOf(configuration_element):
     configPart = dict()
-    for k, v in configuration_element:
+    for k, v in configuration_element.items():
         if k != 'interface':
             configPart[k] = v
     return configPart
@@ -388,7 +394,7 @@ def run_module():
         result = dict(changed=False, acl_result={port: dict(changed=False) for port in staged_changes.keys()},
                     qos_result={port: dict(changed=False) for port in staged_changes.keys()},
                     config_result={port: dict(changed=False) for port in staged_changes.keys()})
-        for port, changes in staged_changes:
+        for port, changes in staged_changes.items():
             if changes['qos_policy']:
                 qos_result = qos(module=module, params=changes, port=port)
                 result['changed'] = result['changed'] or qos_result['changed']
