@@ -362,25 +362,33 @@ def run_module():
         module.exit_json(changed=False, staged_changes=staged_changes, warnings='Not Supported')
 
     try:
-        result = dict(changed=False, acl_result={port: dict(changed=False) for port in staged_changes.keys()},
-                    qos_result={port: dict(changed=False) for port in staged_changes.keys()},
-                    config_result={port: dict(changed=False) for port in staged_changes.keys()})
+        result = dict(changed=False)
+        qos_return = dict(changed=False, ports=dict())
+        acl_return = dict(changed=False, ports=dict())
+        config_return = dict(changed=False, ports=dict())
         for port, changes in staged_changes.items():
             if changes['qos_policy']:
                 qos_result = qos(module=module, params=changes, port=port)
-                result['changed'] = result['changed'] or qos_result['changed']
-                result['qos_result'][port].update(qos_result)
+                qos_return['changed'] = qos_return['changed'] or qos_result['changed']
+                qos_return['ports'][port] = qos_result
 
             if changes['acl_id']:
                 acl_result = acl(module=module, params=changes, port=port)
-                result['changed'] = result['changed'] or acl_result['changed']
-                result['acl_result'][port].update(acl_result)
+                acl_return['changed'] = acl_return['changed'] or acl_result['changed']
+                acl_return['ports'][port] = acl_result
 
             if changes['description'] or changes['admin_stat']:
                 config_result = config_port(module=module, params=changes, port=port)
-                result['changed'] = result['changed'] or config_result['changed']
-                result['config_result'][port].update(config_result)
+                config_return['changed'] = config_return['changed'] or config_result['changed']
+                config_return['ports'][port] = config_result
 
+        result['changed'] = qos_return['changed'] or acl_return['changed'] or config_return['changed']
+        if qos_return['ports']:
+            result['qos'] = qos_return
+        if acl_return['ports']:
+            result['acl'] = acl_return
+        if config_return['ports']:
+            result['config'] = config_return
         module.exit_json(**result)
 
     except Exception as err:
