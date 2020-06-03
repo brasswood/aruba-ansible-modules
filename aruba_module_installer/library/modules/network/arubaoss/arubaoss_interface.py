@@ -338,19 +338,21 @@ def configurationPartOf(configuration_element):
 
 def run_module():
     module_args = dict(
-        interface=dict(type='str', required=True),
-        description=dict(type='str', required=False),
-        admin_stat=dict(type='bool', required=False),
-        qos_policy=dict(type='str', required=False),
-        qos_direction=dict(type='str', required=False, default='QPPD_INBOUND',
-            choices=['QPPD_INBOUND','QPPD_OUTBOUND']),
-        state=dict(type='str', required=False, default='create',
-            choices=['create','delete']),
-        acl_id=dict(type='str', required=False),
-        acl_type=dict(type='str', required=False, default='AT_STANDARD_IPV4',
-            choices=['AT_STANDARD_IPV4','AT_EXTENDED_IPV4','AT_CONNECTION_RATE_FILTER']),
-        acl_direction=dict(type='str', required=False, choices=['AD_INBOUND',
-            'AD_OUTBOUND','AD_CRF']),
+        configuration=dict(type='list', required=True, elements='dict', options=dict(
+            interface=dict(type='str', required=True),
+            description=dict(type='str', required=False),
+            admin_stat=dict(type='bool', required=False),
+            qos_policy=dict(type='str', required=False),
+            qos_direction=dict(type='str', required=False, default='QPPD_INBOUND',
+                choices=['QPPD_INBOUND','QPPD_OUTBOUND']),
+            state=dict(type='str', required=False, default='create',
+                choices=['create','delete']),
+            acl_id=dict(type='str', required=False),
+            acl_type=dict(type='str', required=False, default='AT_STANDARD_IPV4',
+                choices=['AT_STANDARD_IPV4','AT_EXTENDED_IPV4','AT_CONNECTION_RATE_FILTER']),
+            acl_direction=dict(type='str', required=False, choices=['AD_INBOUND',
+                'AD_OUTBOUND','AD_CRF']),
+        ))
     )
 
     module_args.update(arubaoss_argument_spec)
