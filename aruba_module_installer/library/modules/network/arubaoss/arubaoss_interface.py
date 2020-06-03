@@ -134,6 +134,7 @@ from ansible.module_utils.network.arubaoss.arubaoss import run_commands,get_conf
 from ansible.module_utils.network.arubaoss.arubaoss import arubaoss_argument_spec, arubaoss_required_if
 from ansible.module_utils._text import to_text
 import re
+from collections import OrderedDict
 
 QPTQOS = '~QPT_QOS'
 
@@ -201,37 +202,7 @@ class PortRange:
                     if (self._precedes(port, item[1]) and self._precedes(item[0], port)) or port == item[1]:
                         return True
             return False
-
-class Changes:
-    def __init__(self):
-        self._changes = dict()
-
-    def update(self, port, changes):
-        if port in self._changes.keys():
-            self._changes[port].update(changes)
-        else:
-            self._changes[port] = changes
-
-    def keys(self):
-        return self._changes.keys()
-
-    def items(self):
-        return self._changes.items()
-
-    def __len__(self):
-        return len(self._changes)
     
-    def __iter__(self):
-        return iter(self._changes)
-
-    def __getitem__(self, key):
-        return self._changes[key]
-
-    def __setitem__(self, key, value):
-        self._changes[key] = value
-
-    def __delitem__(self, key):
-        del _changes[key]
 
 def get_available_ports(module):
     # Returns available ports on the device
@@ -261,7 +232,7 @@ def qos(module, params, port):
     # check qos policy is present
     qos_check = '/qos/policies/' + params['qos_policy'] + QPTQOS
     if not get_config(module, qos_check):
-        return dict(skipped=True, msg='Configure QoS policy first. {} does not exist'.format(params['qos_policy']))
+        return dict(skipped=True, changed=False, msg='Configure QoS policy first. {} does not exist'.format(params['qos_policy']))
 
     url = '/qos/ports-policies'
 
@@ -298,7 +269,7 @@ def acl(module, params, port):
     # Check if acl is present
     check_acl = '/acls/' + params['acl_id'] + "~" + params['acl_type']
     if not get_config(module,check_acl):
-        return dict(skipped=True, msg='Configure ACL first. {} does not exist'.format(module.params['acl_id']))
+        return dict(skipped=True, changed=False, msg='Configure ACL first. {} does not exist'.format(module.params['acl_id']))
 
     url = "/ports-access-groups"
     acl_type = params['acl_type']
@@ -371,11 +342,8 @@ def run_module():
         supports_check_mode=True
     )
 
-    if module.check_mode:
-        module.exit_json(changed=False, warnings='Not Supported')
-
     available_ports = get_available_ports(module)
-    staged_changes = Changes()
+    staged_changes = OrderedDict()
 
     for section in module.params['configuration']:
         try:
@@ -385,11 +353,14 @@ def run_module():
         changes = configurationPartOf(section)
         for port in available_ports:
             if port_range.includes(port):
-                staged_changes.update(port=port, changes=changes)
+                staged_changes.update({port: changes})
 
-    if len(staged_changes.keys()) == 0:
+    if not staged_changes:
         module.exit_json(skipped=True, msg='No ports were matched on the device.')
-    
+
+    if module.check_mode:
+        module.exit_json(changed=False, staged_changes=staged_changes, warnings='Not Supported')
+
     try:
         result = dict(changed=False, acl_result={port: dict(changed=False) for port in staged_changes.keys()},
                     qos_result={port: dict(changed=False) for port in staged_changes.keys()},
